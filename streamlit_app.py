@@ -1,7 +1,47 @@
 import streamlit as st
 
+# Custom CSS to add some color and styling
+def local_css(file_name):
+    with open(file_name, "r") as f:
+        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+
 def main():
     st.set_page_config(page_title="Snowflake SQL Cheatsheet", layout="wide")
+    
+    # Custom CSS
+    st.markdown("""
+    <style>
+    .main {
+        background-color: #f0f8ff;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 24px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: #4682B4;
+        border-radius: 4px 4px 0px 0px;
+        gap: 1px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        color: white;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #191970;
+    }
+    h1 {
+        color: #191970;
+    }
+    h3 {
+        color: #4682B4;
+    }
+    .stCodeBlock {
+        background-color: #E6E6FA;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.title("Snowflake SQL Cheatsheet")
 
     # Horizontal tabs for navigation
