@@ -65,33 +65,27 @@ def verify_connection():
         st.error("Failed to establish connection to Snowflake.")
         st.session_state.connection_verified = False
 
-# Function to get executive summary
-def get_executive_summary(schema):
-    summary = {}
+# Function to get table details
+def get_table_details(schema, table):
+    details = {}
     
-    # Get list of tables
-    tables = run_query(f"SHOW TABLES IN SCHEMA {schema}")
-    if tables:
-        summary['total_tables'] = len(tables)
-        
-        # Get total rows across all tables
-        total_rows = 0
-        for table in tables:
-            table_name = table[1]
-            row_count = run_query(f"SELECT COUNT(*) FROM {schema}.{table_name}")
-            if row_count:
-                total_rows += row_count[0][0]
-        summary['total_rows'] = total_rows
-        
-        # Get total storage used
-        storage_usage = run_query(f"SELECT STORAGE_USAGE FROM TABLE({schema}.INFORMATION_SCHEMA.TABLE_STORAGE_METRICS)")
-        if storage_usage:
-            total_storage = sum(row[0] for row in storage_usage)
-            summary['storage_usage'] = f"{total_storage / (1024 * 1024 * 1024):.2f} GB"
-    else:
-        summary = None
+    # Get table structure
+    table_structure = run_query(f"DESCRIBE TABLE {schema}.{table}")
+    if table_structure:
+        details['structure'] = pd.DataFrame(table_structure)
     
-    return summary
+    # Get row count
+    row_count = run_query(f"SELECT COUNT(*) FROM {schema}.{table}")
+    if row_count:
+        details['row_count'] = row_count[0][0]
+    
+    # Get sample data
+    sample_data = run_query(f"SELECT * FROM {schema}.{table} LIMIT 5")
+    if sample_data:
+        columns = [col[0] for col in table_structure]
+        details['sample_data'] = pd.DataFrame(sample_data, columns=columns)
+    
+    return details
 
 # Streamlit app
 st.title('Snowflake Analytics Dashboard')
@@ -101,102 +95,43 @@ if st.button('Verify Snowflake Connection'):
     verify_connection()
 
 # Schema selection
-st.session_state.selected_schema = st.sidebar.selectbox('Select Schema', SCHEMAS)
+st.session_state.selected_schema = st.selectbox('Select Schema', SCHEMAS)
 
 # Main content
 if st.session_state.connection_verified:
-    # Sidebar for navigation
-    page = st.sidebar.radio('Navigation', ['Executive Summary', 'Table Analytics'])
+    st.header(f'Data Overview - {st.session_state.selected_schema} Schema')
     
-    if page == 'Executive Summary':
-        st.header(f'Executive Summary - {st.session_state.selected_schema} Schema')
-        summary = get_executive_summary(st.session_state.selected_schema)
-        if summary:
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Tables", summary['total_tables'])
-            col2.metric("Total Rows", f"{summary['total_rows']:,}")
-            col3.metric("Storage Usage", summary['storage_usage'])
-        else:
-            st.error(f"Failed to retrieve executive summary for {st.session_state.selected_schema} schema. Please check your connection and try again.")
-        
-    elif page == 'Table Analytics':
-        st.header(f'Table Analytics - {st.session_state.selected_schema} Schema')
-        # Table selection
-        tables = run_query(f"SHOW TABLES IN SCHEMA {st.session_state.selected_schema}")
-        if tables:
-            table_names = [table[1] for table in tables]
-            selected_table = st.sidebar.selectbox('Select a table', table_names)
-            
-            if selected_table:
-                # Get table details
-                table_details = run_query(f"DESCRIBE TABLE {st.session_state.selected_schema}.{selected_table}")
-                if table_details:
-                    # Create DataFrame with dynamic columns
-                    df_details = pd.DataFrame(table_details)
-                    st.subheader(f"Table: {selected_table}")
-                    st.dataframe(df_details)
-
-                    # Use the first column as the list of column names
-                    columns = [row[0] for row in table_details]
-
-                    # Get row count
-                    row_count = run_query(f"SELECT COUNT(*) FROM {st.session_state.selected_schema}.{selected_table}")
-                    if row_count:
-                        st.metric("Total Rows", row_count[0][0])
-
-                    # Sample data
-                    sample_data = run_query(f"SELECT * FROM {st.session_state.selected_schema}.{selected_table} LIMIT 10")
-                    if sample_data:
-                        st.subheader("Sample Data")
-                        st.dataframe(pd.DataFrame(sample_data, columns=columns))
-
-                    # Analytics section
-                    st.header("Analytics")
-
-                    # Column distribution
-                    selected_column = st.selectbox('Select a column for distribution analysis', columns)
-                    distribution_data = run_query(f"SELECT {selected_column}, COUNT(*) as count FROM {st.session_state.selected_schema}.{selected_table} GROUP BY {selected_column} ORDER BY count DESC LIMIT 10")
-                    if distribution_data:
-                        df_distribution = pd.DataFrame(distribution_data, columns=[selected_column, 'count'])
-                        fig = px.bar(df_distribution, x=selected_column, y='count', title=f'Top 10 {selected_column} Distribution')
-                        st.plotly_chart(fig)
-
-                    # Correlation matrix
-                    numeric_columns = [col[0] for col in table_details if 'NUMBER' in col[1].upper() or 'INT' in col[1].upper() or 'FLOAT' in col[1].upper()]
-                    if len(numeric_columns) > 1:
-                        st.subheader("Correlation Matrix")
-                        correlation_query = f"SELECT {', '.join(numeric_columns)} FROM {st.session_state.selected_schema}.{selected_table} LIMIT 1000"
-                        correlation_data = run_query(correlation_query)
-                        if correlation_data:
-                            df_correlation = pd.DataFrame(correlation_data, columns=numeric_columns)
-                            correlation_matrix = df_correlation.corr()
-                            fig = px.imshow(correlation_matrix, title='Correlation Matrix')
-                            st.plotly_chart(fig)
-
-                    # Time series analysis (if date column exists)
-                    date_columns = [col[0] for col in table_details if 'DATE' in col[1].upper() or 'TIMESTAMP' in col[1].upper()]
-                    if date_columns and numeric_columns:
-                        st.subheader("Time Series Analysis")
-                        selected_date_column = st.selectbox('Select a date column', date_columns)
-                        selected_metric = st.selectbox('Select a metric', numeric_columns)
-                        time_series_query = f"""
-                        SELECT DATE_TRUNC('month', {selected_date_column}) as month, 
-                               AVG({selected_metric}) as avg_metric
-                        FROM {st.session_state.selected_schema}.{selected_table}
-                        GROUP BY month
-                        ORDER BY month
-                        LIMIT 100
-                        """
-                        time_series_data = run_query(time_series_query)
-                        if time_series_data:
-                            df_time_series = pd.DataFrame(time_series_data, columns=['month', 'avg_metric'])
-                            fig = px.line(df_time_series, x='month', y='avg_metric', title=f'Average {selected_metric} Over Time')
-                            st.plotly_chart(fig)
-                else:
-                    st.error(f"Failed to retrieve details for table {selected_table}")
-        else:
-            st.error(f"Failed to retrieve table list for {st.session_state.selected_schema} schema. Please check your connection and permissions.")
-
+    # Get list of tables
+    tables = run_query(f"SHOW TABLES IN SCHEMA {st.session_state.selected_schema}")
+    if tables:
+        # Create a grid layout
+        cols = st.columns(3)
+        for i, table in enumerate(tables):
+            table_name = table[1]
+            with cols[i % 3]:
+                st.subheader(table_name)
+                details = get_table_details(st.session_state.selected_schema, table_name)
+                
+                if 'row_count' in details:
+                    st.metric("Rows", f"{details['row_count']:,}")
+                
+                if 'structure' in details:
+                    with st.expander("Table Structure"):
+                        st.dataframe(details['structure'], height=150)
+                
+                if 'sample_data' in details:
+                    with st.expander("Sample Data"):
+                        st.dataframe(details['sample_data'], height=150)
+                
+                # Quick visualizations
+                if 'structure' in details and 'sample_data' in details:
+                    numeric_columns = details['structure'][details['structure'].iloc[:, 1].str.contains('INT|FLOAT|NUMBER', case=False)].iloc[:, 0].tolist()
+                    if numeric_columns:
+                        selected_column = st.selectbox(f"Select a column to visualize for {table_name}", numeric_columns)
+                        fig = px.histogram(details['sample_data'], x=selected_column, title=f"Distribution of {selected_column}")
+                        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.error(f"Failed to retrieve table list for {st.session_state.selected_schema} schema. Please check your connection and permissions.")
 else:
     st.warning("Please verify your Snowflake connection before proceeding.")
 
