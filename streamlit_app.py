@@ -1,153 +1,103 @@
 import streamlit as st
+import pandas as pd
+import plotly.express as px
+import snowflake.connector
 
-# Custom CSS to add some color and styling
-def local_css(file_name):
-    with open(file_name, "r") as f:
-        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+# Snowflake connection parameters (replace with your actual credentials)
+SNOWFLAKE_ACCOUNT = 'pxeimst-ey17791.snowflakecomputing.com'
+SNOWFLAKE_USER = 'amolpatilofficial'
+SNOWFLAKE_PASSWORD = 'Shiva@8898'
+SNOWFLAKE_WAREHOUSE = 'COMPUTE_WH'
+SNOWFLAKE_DATABASE = 'DB_DEV_GEOPERFORM'
+SNOWFLAKE_SCHEMA = 'PUBLIC'
 
-def main():
-    st.set_page_config(page_title="Snowflake SQL Cheatsheet", layout="wide")
-    
-    # Custom CSS
-    st.markdown("""
-    <style>
-    .main {
-        background-color: #f0f8ff;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
-        background-color: #4682B4;
-        border-radius: 4px 4px 0px 0px;
-        gap: 1px;
-        padding-top: 10px;
-        padding-bottom: 10px;
-        color: white;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #191970;
-    }
-    h1 {
-        color: #191970;
-    }
-    h3 {
-        color: #4682B4;
-    }
-    .stCodeBlock {
-        background-color: #E6E6FA;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+# Connect to Snowflake
+@st.cache_resource
+def init_connection():
+    return snowflake.connector.connect(
+        account=SNOWFLAKE_ACCOUNT,
+        user=SNOWFLAKE_USER,
+        password=SNOWFLAKE_PASSWORD,
+        warehouse=SNOWFLAKE_WAREHOUSE,
+        database=SNOWFLAKE_DATABASE,
+        schema=SNOWFLAKE_SCHEMA
+    )
 
-    st.title("Snowflake SQL Cheatsheet")
+conn = init_connection()
 
-    # Horizontal tabs for navigation
-    tabs = st.tabs(["Data Definition", "Data Manipulation", "Querying Data", "Functions", "Data Loading"])
+# Function to run queries
+@st.cache_data
+def run_query(query):
+    with conn.cursor() as cur:
+        cur.execute(query)
+        return cur.fetchall()
 
-    with tabs[0]:
-        show_data_definition()
-    with tabs[1]:
-        show_data_manipulation()
-    with tabs[2]:
-        show_querying_data()
-    with tabs[3]:
-        show_functions()
-    with tabs[4]:
-        show_data_loading()
+# Streamlit app
+st.title('Snowflake Analytics Dashboard')
 
-def show_data_definition():
-    st.header("Data Definition Language (DDL)")
-    
-    st.subheader("Create Database")
-    st.code("CREATE DATABASE database_name;")
-    
-    st.subheader("Create Schema")
-    st.code("CREATE SCHEMA schema_name;")
-    
-    st.subheader("Create Table")
-    st.code("""
-CREATE TABLE table_name (
-    column1 datatype,
-    column2 datatype,
-    ...
-);
-    """)
+# Sidebar for table selection
+tables = run_query("SHOW TABLES")
+table_names = [table[1] for table in tables]
+selected_table = st.sidebar.selectbox('Select a table', table_names)
 
-def show_data_manipulation():
-    st.header("Data Manipulation Language (DML)")
+if selected_table:
+    # Get table details
+    table_details = run_query(f"DESCRIBE TABLE {selected_table}")
+    columns = [col[0] for col in table_details]
     
-    st.subheader("Insert Data")
-    st.code("INSERT INTO table_name (column1, column2, ...) VALUES (value1, value2, ...);")
-    
-    st.subheader("Update Data")
-    st.code("UPDATE table_name SET column1 = value1 WHERE condition;")
-    
-    st.subheader("Delete Data")
-    st.code("DELETE FROM table_name WHERE condition;")
+    # Display table details
+    st.header(f"Table: {selected_table}")
+    st.dataframe(pd.DataFrame(table_details, columns=['Column', 'Type', 'Kind', 'Null?', 'Default', 'Primary Key', 'Unique Key', 'Check', 'Expression', 'Comment']))
 
-def show_querying_data():
-    st.header("Querying Data")
-    
-    st.subheader("Select Data")
-    st.code("SELECT column1, column2, ... FROM table_name WHERE condition;")
-    
-    st.subheader("Join Tables")
-    st.code("""
-SELECT *
-FROM table1
-JOIN table2 ON table1.column = table2.column;
-    """)
-    
-    st.subheader("Group By")
-    st.code("""
-SELECT column1, COUNT(*)
-FROM table_name
-GROUP BY column1;
-    """)
+    # Get row count
+    row_count = run_query(f"SELECT COUNT(*) FROM {selected_table}")[0][0]
+    st.metric("Total Rows", row_count)
 
-def show_functions():
-    st.header("Snowflake Functions")
-    
-    st.subheader("Date Functions")
-    st.code("""
--- Current date
-SELECT CURRENT_DATE();
+    # Sample data
+    sample_data = run_query(f"SELECT * FROM {selected_table} LIMIT 10")
+    st.subheader("Sample Data")
+    st.dataframe(pd.DataFrame(sample_data, columns=columns))
 
--- Date part
-SELECT DATE_PART('month', date_column) FROM table_name;
+    # Analytics section
+    st.header("Analytics")
 
--- Date trunc
-SELECT DATE_TRUNC('month', date_column) FROM table_name;
-    """)
-    
-    st.subheader("String Functions")
-    st.code("""
--- Concatenate
-SELECT CONCAT(first_name, ' ', last_name) FROM users;
+    # Column distribution
+    selected_column = st.selectbox('Select a column for distribution analysis', columns)
+    distribution_data = run_query(f"SELECT {selected_column}, COUNT(*) as count FROM {selected_table} GROUP BY {selected_column} ORDER BY count DESC LIMIT 10")
+    if distribution_data:
+        df_distribution = pd.DataFrame(distribution_data, columns=[selected_column, 'count'])
+        fig = px.bar(df_distribution, x=selected_column, y='count', title=f'Top 10 {selected_column} Distribution')
+        st.plotly_chart(fig)
 
--- Substring
-SELECT SUBSTRING(column_name, 1, 3) FROM table_name;
-    """)
+    # Correlation matrix
+    numeric_columns = [col[0] for col in table_details if col[1] in ('NUMBER', 'FLOAT', 'INTEGER')]
+    if len(numeric_columns) > 1:
+        st.subheader("Correlation Matrix")
+        correlation_query = f"SELECT {', '.join(numeric_columns)} FROM {selected_table} LIMIT 1000"
+        correlation_data = run_query(correlation_query)
+        df_correlation = pd.DataFrame(correlation_data, columns=numeric_columns)
+        correlation_matrix = df_correlation.corr()
+        fig = px.imshow(correlation_matrix, title='Correlation Matrix')
+        st.plotly_chart(fig)
 
-def show_data_loading():
-    st.header("Data Loading")
-    
-    st.subheader("Copy Command")
-    st.code("""
-COPY INTO table_name
-FROM @stage_name/path/to/file.csv
-FILE_FORMAT = (TYPE = 'CSV' FIELD_DELIMITER = ',' SKIP_HEADER = 1);
-    """)
-    
-    st.subheader("Create External Stage")
-    st.code("""
-CREATE STAGE my_ext_stage
-    URL='s3://my_bucket/path/'
-    CREDENTIALS=(AWS_KEY_ID='xxxx' AWS_SECRET_KEY='xxxx');
-    """)
+    # Time series analysis (if date column exists)
+    date_columns = [col[0] for col in table_details if 'DATE' in col[1].upper()]
+    if date_columns:
+        st.subheader("Time Series Analysis")
+        selected_date_column = st.selectbox('Select a date column', date_columns)
+        selected_metric = st.selectbox('Select a metric', numeric_columns)
+        time_series_query = f"""
+        SELECT DATE_TRUNC('month', {selected_date_column}) as month, 
+               AVG({selected_metric}) as avg_metric
+        FROM {selected_table}
+        GROUP BY month
+        ORDER BY month
+        LIMIT 100
+        """
+        time_series_data = run_query(time_series_query)
+        if time_series_data:
+            df_time_series = pd.DataFrame(time_series_data, columns=['month', 'avg_metric'])
+            fig = px.line(df_time_series, x='month', y='avg_metric', title=f'Average {selected_metric} Over Time')
+            st.plotly_chart(fig)
 
-if __name__ == "__main__":
-    main()
+st.sidebar.info("Note: This app uses hardcoded credentials, which is not recommended for production use.")
