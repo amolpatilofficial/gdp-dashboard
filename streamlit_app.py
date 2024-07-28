@@ -4,21 +4,18 @@ def main():
     st.set_page_config(page_title="Snowflake SQL Cheatsheet", layout="wide")
     st.title("Snowflake SQL Cheatsheet")
 
-    # Sidebar for navigation
-    category = st.sidebar.selectbox(
-        "Select a category",
-        ["Data Definition", "Data Manipulation", "Querying Data", "Functions", "Data Loading"]
-    )
+    # Horizontal tabs for navigation
+    tabs = st.tabs(["Data Definition", "Data Manipulation", "Querying Data", "Functions", "Data Loading"])
 
-    if category == "Data Definition":
+    with tabs[0]:
         show_data_definition()
-    elif category == "Data Manipulation":
+    with tabs[1]:
         show_data_manipulation()
-    elif category == "Querying Data":
+    with tabs[2]:
         show_querying_data()
-    elif category == "Functions":
+    with tabs[3]:
         show_functions()
-    elif category == "Data Loading":
+    with tabs[4]:
         show_data_loading()
 
 def show_data_definition():
