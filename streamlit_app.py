@@ -3,8 +3,6 @@ import pandas as pd
 import plotly.express as px
 import snowflake.connector
 from snowflake.connector.errors import ProgrammingError, OperationalError
-import networkx as nx
-import matplotlib.pyplot as plt
 
 # Snowflake connection parameters
 SNOWFLAKE_ACCOUNT = 'fx57599.central-india.azure'
@@ -135,24 +133,8 @@ def get_table_relationships(schema):
                 WHERE fk.TABLE_NAME = '{table_name}'
             """)
             for fk in fks:
-                relationships.append((fk[0], fk[2]))  # (table_name, referenced_table_name)
+                relationships.append((fk[0], fk[1], fk[2], fk[3]))  # (table_name, column_name, referenced_table_name, referenced_column_name)
     return relationships
-
-# Function to visualize table relationships
-def visualize_relationships(relationships):
-    G = nx.DiGraph()
-    for rel in relationships:
-        G.add_edge(rel[0], rel[1])
-    
-    plt.figure(figsize=(12, 8))
-    pos = nx.spring_layout(G)
-    nx.draw(G, pos, with_labels=True, node_color='lightblue', node_size=3000, font_size=8, font_weight='bold', arrows=True)
-    
-    edge_labels = {(u, v): '' for (u, v) in G.edges()}
-    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=6)
-    
-    plt.title("Table Relationships (ERD)", fontsize=16)
-    st.pyplot(plt)
 
 # Streamlit app
 st.title('🔍 Snowflake Analytics Dashboard')
@@ -168,7 +150,7 @@ st.session_state.selected_schema = st.sidebar.selectbox('📊 Select Schema', SC
 
 # Main content
 if st.session_state.connection_verified:
-    page = st.sidebar.radio('📑 Pages', ['Executive Summary', 'Table Analytics', 'ERD Visualization'])
+    page = st.sidebar.radio('📑 Pages', ['Executive Summary', 'Table Analytics', 'Table Relationships'])
     
     if page == 'Executive Summary':
         st.header(f'📈 Executive Summary - {st.session_state.selected_schema} Schema')
@@ -293,15 +275,21 @@ if st.session_state.connection_verified:
         else:
             st.error(f"Failed to retrieve table list for {st.session_state.selected_schema} schema. Please check your connection and permissions.")
     
-    elif page == 'ERD Visualization':
-        st.header(f'🔗 Entity Relationship Diagram - {st.session_state.selected_schema} Schema')
+    elif page == 'Table Relationships':
+        st.header(f'🔗 Table Relationships - {st.session_state.selected_schema} Schema')
         relationships = get_table_relationships(st.session_state.selected_schema)
         if relationships:
-            visualize_relationships(relationships)
+            st.subheader("📋 Foreign Key Relationships")
+            df_relationships = pd.DataFrame(relationships, columns=['Table', 'Column', 'Referenced Table', 'Referenced Column'])
+            st.table(df_relationships)
             
-            st.subheader("📋 Table Relationships")
-            for rel in relationships:
-                st.write(f"• {rel[0]} → {rel[1]}")
+            # Visualize relationships using Plotly
+            table_pairs = [(rel[0], rel[2]) for rel in relationships]
+            df_edges = pd.DataFrame(table_pairs, columns=['Source', 'Target'])
+            fig = px.scatter(df_edges, x='Source', y='Target', title='Table Relationships')
+            fig.update_traces(marker=dict(size=10))
+            fig.add_trace(px.line(df_edges, x='Source', y='Target').data[0])
+            st.plotly_chart(fig)
         else:
             st.info("No relationships found or unable to retrieve relationship information.")
 
