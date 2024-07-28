@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import snowflake.connector
 from snowflake.connector.errors import ProgrammingError, OperationalError
 
@@ -318,3 +317,5 @@ if st.session_state.connection_verified:
                     st.plotly_chart(fig)
                     
                 else:
+                    st.error(f"Failed to retrieve details for table {selected_table}")
+        else:
