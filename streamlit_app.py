@@ -315,7 +315,3 @@ if st.session_state.connection_verified:
                     # Visualize null percentages
                     fig = px.bar(df_null_checks, x='Column', y='Null Percentage', title='Null Percentage by Column')
                     st.plotly_chart(fig)
-                    
-                else:
-                    st.error(f"Failed to retrieve details for table {selected_table}")
-        else:
