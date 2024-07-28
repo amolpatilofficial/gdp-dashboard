@@ -4,7 +4,7 @@ import plotly.express as px
 import snowflake.connector
 
 # Snowflake connection parameters (replace with your actual credentials)
-SNOWFLAKE_ACCOUNT = 'pxeimst-ey17791.snowflakecomputing.com'
+SNOWFLAKE_ACCOUNT = 'fx57599.central-india.azure.snowflakecomputing.com'
 SNOWFLAKE_USER = 'amolpatilofficial'
 SNOWFLAKE_PASSWORD = 'Shiva@8898'
 SNOWFLAKE_WAREHOUSE = 'COMPUTE_WH'
