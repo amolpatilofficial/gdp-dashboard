@@ -5,7 +5,7 @@ import snowflake.connector
 from snowflake.connector.errors import ProgrammingError
 
 # Snowflake connection parameters (unchanged)
-SNOWFLAKE_ACCOUNT = 'fx57599.central-india.azure'
+SNOWFLAKE_ACCOUNT = 'PXEIMST.EY17791'
 SNOWFLAKE_USER = 'amolpatilofficial'
 SNOWFLAKE_PASSWORD = 'Shiva@8898'
 SNOWFLAKE_WAREHOUSE = 'COMPUTE_WH'
