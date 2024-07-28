@@ -183,28 +183,70 @@ if st.session_state.connection_verified:
                     # Use the first column as the list of column names
                     columns = [row[0] for row in table_details]
                     
-                    # Table statistics
+                    # Enhanced Table statistics
                     st.subheader("📊 Table Statistics")
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2, col3, col4 = st.columns(4)
                     row_count = run_query(f"SELECT COUNT(*) FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table}")
                     if row_count:
-                        col1.metric("Total Rows", row_count[0][0])
+                        col1.metric("Total Rows", f"{row_count[0][0]:,}")
                     
                     size_query = f"""
-                    SELECT TABLE_NAME, ROW_COUNT, BYTES
+                    SELECT TABLE_NAME, ROW_COUNT, BYTES, CREATED, LAST_ALTERED
                     FROM {SNOWFLAKE_DATABASE}.INFORMATION_SCHEMA.TABLES
                     WHERE TABLE_SCHEMA = '{st.session_state.selected_schema}' AND TABLE_NAME = '{selected_table}'
                     """
                     size_info = run_query(size_query)
                     if size_info:
-                        col2.metric("Size", f"{size_info[0][2] / (1024*1024):.2f} MB")
+                        col2.metric("Size", f"{size_info[0][2] / (1024*1024*1024):.2f} GB")
                         col3.metric("Avg Row Size", f"{size_info[0][2] / size_info[0][1]:.2f} bytes")
+                        col4.metric("# of Columns", len(columns))
+                    
+                    # Additional table metadata
+                    st.subheader("📌 Table Metadata")
+                    meta_col1, meta_col2 = st.columns(2)
+                    meta_col1.info(f"Created: {size_info[0][3]}")
+                    meta_col2.info(f"Last Altered: {size_info[0][4]}")
+                    
+                    # Owner access information
+                    st.subheader("👤 Owner Access Information")
+                    owner_query = f"""
+                    SELECT PRIVILEGE, GRANTEE, GRANTED_BY
+                    FROM {SNOWFLAKE_DATABASE}.INFORMATION_SCHEMA.TABLE_PRIVILEGES
+                    WHERE TABLE_SCHEMA = '{st.session_state.selected_schema}' AND TABLE_NAME = '{selected_table}'
+                    """
+                    owner_info = run_query(owner_query)
+                    if owner_info:
+                        df_owner = pd.DataFrame(owner_info, columns=['Privilege', 'Grantee', 'Granted By'])
+                        st.dataframe(df_owner)
+                    else:
+                        st.warning("Unable to retrieve owner access information. You may not have the required permissions.")
                     
                     # Sample data
                     st.subheader("👀 Sample Data")
                     sample_data = run_query(f"SELECT * FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table} LIMIT 10")
                     if sample_data:
                         st.dataframe(pd.DataFrame(sample_data, columns=columns))
+                    
+                    # Column statistics
+                    st.subheader("🔢 Column Statistics")
+                    selected_column = st.selectbox('Select a column for detailed statistics', columns)
+                    col_stats_query = f"""
+                    SELECT 
+                        COUNT(*) as total_count,
+                        COUNT(DISTINCT {selected_column}) as distinct_count,
+                        AVG(CAST({selected_column} AS FLOAT)) as avg_value,
+                        MIN({selected_column}) as min_value,
+                        MAX({selected_column}) as max_value
+                    FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table}
+                    """
+                    col_stats = run_query(col_stats_query)
+                    if col_stats:
+                        stats_col1, stats_col2, stats_col3, stats_col4, stats_col5 = st.columns(5)
+                        stats_col1.metric("Total Count", f"{col_stats[0][0]:,}")
+                        stats_col2.metric("Distinct Count", f"{col_stats[0][1]:,}")
+                        stats_col3.metric("Average", f"{col_stats[0][2]:.2f}")
+                        stats_col4.metric("Minimum", col_stats[0][3])
+                        stats_col5.metric("Maximum", col_stats[0][4])
                     
                     # Analytics section
                     st.header("📈 Analytics")
@@ -263,4 +305,4 @@ if st.session_state.connection_verified:
 else:
     st.warning("⚠️ Please verify your Snowflake connection before proceeding.")
 
-st.sidebar.info("ℹ️ Note: This app uses hardcoded credentials, which is not recommended for production use.")
+st.sidebar.info("ℹ️ Note: This app uses hardcoded credentials, which is not recommende")
