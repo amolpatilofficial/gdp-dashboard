@@ -97,7 +97,7 @@ def get_executive_summary(schema):
     summary = {}
     
     # Get list of tables
-    tables = run_query(f"SHOW TABLES IN SCHEMA {schema}")
+    tables = run_query(f"SHOW TABLES IN {SNOWFLAKE_DATABASE}.{schema}")
     if tables:
         summary['total_tables'] = len(tables)
         
@@ -105,13 +105,13 @@ def get_executive_summary(schema):
         total_rows = 0
         for table in tables:
             table_name = table[1]
-            row_count = run_query(f"SELECT COUNT(*) FROM {schema}.{table_name}")
+            row_count = run_query(f"SELECT COUNT(*) FROM {SNOWFLAKE_DATABASE}.{schema}.{table_name}")
             if row_count:
                 total_rows += row_count[0][0]
         summary['total_rows'] = total_rows
         
         # Get total storage used
-        storage_usage = run_query(f"SELECT STORAGE_USAGE FROM TABLE({schema}.INFORMATION_SCHEMA.TABLE_STORAGE_METRICS)")
+        storage_usage = run_query(f"SELECT STORAGE_USAGE FROM {SNOWFLAKE_DATABASE}.INFORMATION_SCHEMA.TABLE_STORAGE_METRICS WHERE TABLE_SCHEMA = '{schema}'")
         if storage_usage:
             total_storage = sum(row[0] for row in storage_usage)
             summary['storage_usage'] = f"{total_storage / (1024 * 1024 * 1024):.2f} GB"
@@ -123,14 +123,14 @@ def get_executive_summary(schema):
 # Function to get table relationships
 def get_table_relationships(schema):
     relationships = []
-    tables = run_query(f"SHOW TABLES IN SCHEMA {schema}")
+    tables = run_query(f"SHOW TABLES IN {SNOWFLAKE_DATABASE}.{schema}")
     if tables:
         for table in tables:
             table_name = table[1]
             fks = run_query(f"""
                 SELECT fk.TABLE_NAME, fk.COLUMN_NAME, fk.REFERENCED_TABLE_NAME, fk.REFERENCED_COLUMN_NAME
-                FROM {schema}.INFORMATION_SCHEMA.FOREIGN_KEY_CONSTRAINTS fk
-                WHERE fk.TABLE_NAME = '{table_name}'
+                FROM {SNOWFLAKE_DATABASE}.INFORMATION_SCHEMA.FOREIGN_KEY_CONSTRAINTS fk
+                WHERE fk.TABLE_SCHEMA = '{schema}' AND fk.TABLE_NAME = '{table_name}'
             """)
             for fk in fks:
                 relationships.append((fk[0], fk[1], fk[2], fk[3]))  # (table_name, column_name, referenced_table_name, referenced_column_name)
@@ -163,7 +163,7 @@ if st.session_state.connection_verified:
             
             # Additional schema details
             st.subheader("📋 Schema Details")
-            schema_details = run_query(f"DESCRIBE SCHEMA {st.session_state.selected_schema}")
+            schema_details = run_query(f"DESCRIBE SCHEMA {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}")
             if schema_details:
                 st.table(pd.DataFrame(schema_details, columns=['Property', 'Value']))
             
@@ -171,7 +171,8 @@ if st.session_state.connection_verified:
             st.subheader("🕒 Recent Updates")
             recent_updates = run_query(f"""
                 SELECT TABLE_NAME, LAST_ALTERED
-                FROM {st.session_state.selected_schema}.INFORMATION_SCHEMA.TABLES
+                FROM {SNOWFLAKE_DATABASE}.INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = '{st.session_state.selected_schema}'
                 ORDER BY LAST_ALTERED DESC
                 LIMIT 5
             """)
@@ -182,14 +183,14 @@ if st.session_state.connection_verified:
     
     elif page == 'Table Analytics':
         st.header(f'📊 Table Analytics - {st.session_state.selected_schema} Schema')
-        tables = run_query(f"SHOW TABLES IN SCHEMA {st.session_state.selected_schema}")
+        tables = run_query(f"SHOW TABLES IN {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}")
         if tables:
             table_names = [table[1] for table in tables]
             selected_table = st.selectbox('Select a table', table_names)
             
             if selected_table:
                 # Table details
-                table_details = run_query(f"DESCRIBE TABLE {st.session_state.selected_schema}.{selected_table}")
+                table_details = run_query(f"DESCRIBE TABLE {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table}")
                 if table_details:
                     st.subheader(f"📋 Table: {selected_table}")
                     df_details = pd.DataFrame(table_details)
@@ -201,14 +202,14 @@ if st.session_state.connection_verified:
                     # Table statistics
                     st.subheader("📊 Table Statistics")
                     col1, col2, col3 = st.columns(3)
-                    row_count = run_query(f"SELECT COUNT(*) FROM {st.session_state.selected_schema}.{selected_table}")
+                    row_count = run_query(f"SELECT COUNT(*) FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table}")
                     if row_count:
                         col1.metric("Total Rows", row_count[0][0])
                     
                     size_query = f"""
                     SELECT TABLE_NAME, ROW_COUNT, BYTES
-                    FROM {st.session_state.selected_schema}.INFORMATION_SCHEMA.TABLES
-                    WHERE TABLE_NAME = '{selected_table}'
+                    FROM {SNOWFLAKE_DATABASE}.INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_SCHEMA = '{st.session_state.selected_schema}' AND TABLE_NAME = '{selected_table}'
                     """
                     size_info = run_query(size_query)
                     if size_info:
@@ -217,7 +218,7 @@ if st.session_state.connection_verified:
                     
                     # Sample data
                     st.subheader("👀 Sample Data")
-                    sample_data = run_query(f"SELECT * FROM {st.session_state.selected_schema}.{selected_table} LIMIT 10")
+                    sample_data = run_query(f"SELECT * FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table} LIMIT 10")
                     if sample_data:
                         st.dataframe(pd.DataFrame(sample_data, columns=columns))
                     
@@ -229,7 +230,7 @@ if st.session_state.connection_verified:
                     selected_column = st.selectbox('Select a column for distribution analysis', columns)
                     distribution_data = run_query(f"""
                         SELECT {selected_column}, COUNT(*) as count 
-                        FROM {st.session_state.selected_schema}.{selected_table} 
+                        FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table} 
                         GROUP BY {selected_column} 
                         ORDER BY count DESC 
                         LIMIT 10
@@ -243,7 +244,7 @@ if st.session_state.connection_verified:
                     numeric_columns = [col[0] for col in table_details if 'NUMBER' in col[1].upper() or 'INT' in col[1].upper() or 'FLOAT' in col[1].upper()]
                     if len(numeric_columns) > 1:
                         st.subheader("Correlation Matrix")
-                        correlation_query = f"SELECT {', '.join(numeric_columns)} FROM {st.session_state.selected_schema}.{selected_table} LIMIT 1000"
+                        correlation_query = f"SELECT {', '.join(numeric_columns)} FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table} LIMIT 1000"
                         correlation_data = run_query(correlation_query)
                         if correlation_data:
                             df_correlation = pd.DataFrame(correlation_data, columns=numeric_columns)
@@ -260,7 +261,7 @@ if st.session_state.connection_verified:
                         time_series_query = f"""
                         SELECT DATE_TRUNC('month', {selected_date_column}) as month, 
                                AVG({selected_metric}) as avg_metric
-                        FROM {st.session_state.selected_schema}.{selected_table}
+                        FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table}
                         GROUP BY month
                         ORDER BY month
                         LIMIT 100
