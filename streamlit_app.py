@@ -10,7 +10,7 @@ SNOWFLAKE_USER = 'amolpatilofficial'
 SNOWFLAKE_PASSWORD = 'Shiva@8898'
 SNOWFLAKE_WAREHOUSE = 'COMPUTE_WH'
 SNOWFLAKE_DATABASE = 'DB_DEV_GEOPERFORM'
-SNOWFLAKE_SCHEMA = 'PUBLIC'
+SNOWFLAKE_SCHEMA = 'STAGING'
 
 # Initialize session state
 if 'connection_verified' not in st.session_state:
