@@ -131,11 +131,13 @@ if st.session_state.connection_verified:
                 # Get table details
                 table_details = run_query(f"DESCRIBE TABLE {st.session_state.selected_schema}.{selected_table}")
                 if table_details:
-                    columns = [col[0] for col in table_details]
-                    
-                    # Display table details
+                    # Create DataFrame with dynamic columns
+                    df_details = pd.DataFrame(table_details)
                     st.subheader(f"Table: {selected_table}")
-                    st.dataframe(pd.DataFrame(table_details, columns=['Column', 'Type', 'Kind', 'Null?', 'Default', 'Primary Key', 'Unique Key', 'Check', 'Expression', 'Comment']))
+                    st.dataframe(df_details)
+
+                    # Use the first column as the list of column names
+                    columns = [row[0] for row in table_details]
 
                     # Get row count
                     row_count = run_query(f"SELECT COUNT(*) FROM {st.session_state.selected_schema}.{selected_table}")
@@ -160,7 +162,7 @@ if st.session_state.connection_verified:
                         st.plotly_chart(fig)
 
                     # Correlation matrix
-                    numeric_columns = [col[0] for col in table_details if col[1] in ('NUMBER', 'FLOAT', 'INTEGER')]
+                    numeric_columns = [col[0] for col in table_details if 'NUMBER' in col[1].upper() or 'INT' in col[1].upper() or 'FLOAT' in col[1].upper()]
                     if len(numeric_columns) > 1:
                         st.subheader("Correlation Matrix")
                         correlation_query = f"SELECT {', '.join(numeric_columns)} FROM {st.session_state.selected_schema}.{selected_table} LIMIT 1000"
@@ -172,8 +174,8 @@ if st.session_state.connection_verified:
                             st.plotly_chart(fig)
 
                     # Time series analysis (if date column exists)
-                    date_columns = [col[0] for col in table_details if 'DATE' in col[1].upper()]
-                    if date_columns:
+                    date_columns = [col[0] for col in table_details if 'DATE' in col[1].upper() or 'TIMESTAMP' in col[1].upper()]
+                    if date_columns and numeric_columns:
                         st.subheader("Time Series Analysis")
                         selected_date_column = st.selectbox('Select a date column', date_columns)
                         selected_metric = st.selectbox('Select a metric', numeric_columns)
