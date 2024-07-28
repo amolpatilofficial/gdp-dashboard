@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import snowflake.connector
 from snowflake.connector.errors import ProgrammingError, OperationalError
 
@@ -114,6 +115,36 @@ def get_executive_summary(schema):
     
     return summary
 
+# Function to get detailed table info
+def get_table_info(schema, table):
+    info = {}
+    
+    # Get basic table info
+    table_info = run_query(f"""
+        SELECT TABLE_TYPE, ROW_COUNT, BYTES, RETENTION_TIME, CREATED, LAST_ALTERED
+        FROM {SNOWFLAKE_DATABASE}.INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}'
+    """)
+    if table_info:
+        info['type'] = table_info[0][0]
+        info['row_count'] = table_info[0][1]
+        info['size_bytes'] = table_info[0][2]
+        info['retention_time'] = table_info[0][3]
+        info['created'] = table_info[0][4]
+        info['last_altered'] = table_info[0][5]
+    
+    # Get column info
+    columns = run_query(f"""
+        SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE
+        FROM {SNOWFLAKE_DATABASE}.INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}'
+        ORDER BY ORDINAL_POSITION
+    """)
+    if columns:
+        info['columns'] = columns
+    
+    return info
+
 # Streamlit app
 st.title('🔍 Snowflake Analytics Dashboard')
 
@@ -144,6 +175,24 @@ if st.session_state.connection_verified:
             if schema_details:
                 st.table(pd.DataFrame(schema_details, columns=['Property', 'Value']))
             
+            # Table list with details
+            st.subheader("📊 Tables in Schema")
+            tables = run_query(f"""
+                SELECT TABLE_NAME, TABLE_TYPE, ROW_COUNT, BYTES, CREATED, LAST_ALTERED
+                FROM {SNOWFLAKE_DATABASE}.INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = '{st.session_state.selected_schema}'
+                ORDER BY BYTES DESC
+            """)
+            if tables:
+                df_tables = pd.DataFrame(tables, columns=['Table Name', 'Type', 'Row Count', 'Size (Bytes)', 'Created', 'Last Altered'])
+                df_tables['Size (MB)'] = df_tables['Size (Bytes)'] / (1024 * 1024)
+                df_tables['Size (MB)'] = df_tables['Size (MB)'].round(2)
+                st.dataframe(df_tables)
+
+                # Visualize table sizes
+                fig = px.bar(df_tables, x='Table Name', y='Size (MB)', title='Table Sizes in Schema')
+                st.plotly_chart(fig)
+            
             # Most recent updates
             st.subheader("🕒 Recent Updates")
             recent_updates = run_query(f"""
@@ -167,42 +216,38 @@ if st.session_state.connection_verified:
             
             if selected_table:
                 # Table details
-                table_details = run_query(f"DESCRIBE TABLE {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table}")
-                if table_details:
+                table_info = get_table_info(st.session_state.selected_schema, selected_table)
+                if table_info:
                     st.subheader(f"📋 Table: {selected_table}")
-                    df_details = pd.DataFrame(table_details)
-                    st.dataframe(df_details)
                     
-                    # Use the first column as the list of column names
-                    columns = [row[0] for row in table_details]
+                    # Display basic table info
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Table Type", table_info.get('type', 'N/A'))
+                    col2.metric("Row Count", f"{table_info.get('row_count', 'N/A'):,}")
+                    col3.metric("Size", f"{table_info.get('size_bytes', 0) / (1024*1024):.2f} MB")
                     
-                    # Table statistics
-                    st.subheader("📊 Table Statistics")
                     col1, col2 = st.columns(2)
-                    row_count = run_query(f"SELECT COUNT(*) FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table}")
-                    if row_count:
-                        col1.metric("Total Rows", row_count[0][0])
+                    col1.metric("Created", table_info.get('created', 'N/A'))
+                    col2.metric("Last Altered", table_info.get('last_altered', 'N/A'))
                     
-                    size_query = f"""
-                    SELECT TABLE_NAME, ROW_COUNT
-                    FROM {SNOWFLAKE_DATABASE}.INFORMATION_SCHEMA.TABLES
-                    WHERE TABLE_SCHEMA = '{st.session_state.selected_schema}' AND TABLE_NAME = '{selected_table}'
-                    """
-                    size_info = run_query(size_query)
-                    if size_info:
-                        col2.metric("Row Count", size_info[0][1])
+                    # Display column info
+                    st.subheader("Column Details")
+                    if 'columns' in table_info:
+                        df_columns = pd.DataFrame(table_info['columns'], columns=['Name', 'Type', 'Nullable', 'Max Length', 'Precision', 'Scale'])
+                        st.dataframe(df_columns)
                     
                     # Sample data
                     st.subheader("👀 Sample Data")
                     sample_data = run_query(f"SELECT * FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table} LIMIT 10")
                     if sample_data:
-                        st.dataframe(pd.DataFrame(sample_data, columns=columns))
+                        st.dataframe(pd.DataFrame(sample_data, columns=[col[0] for col in table_info['columns']]))
                     
                     # Analytics section
                     st.header("📈 Analytics")
                     
                     # Column distribution
                     st.subheader("Column Distribution")
+                    columns = [col[0] for col in table_info['columns']]
                     selected_column = st.selectbox('Select a column for distribution analysis', columns)
                     distribution_data = run_query(f"""
                         SELECT {selected_column}, COUNT(*) as count 
@@ -217,7 +262,7 @@ if st.session_state.connection_verified:
                         st.plotly_chart(fig)
                     
                     # Correlation matrix
-                    numeric_columns = [col[0] for col in table_details if 'NUMBER' in col[1].upper() or 'INT' in col[1].upper() or 'FLOAT' in col[1].upper()]
+                    numeric_columns = [col[0] for col in table_info['columns'] if col[1] in ('NUMBER', 'FLOAT', 'INT', 'INTEGER', 'BIGINT', 'DECIMAL')]
                     if len(numeric_columns) > 1:
                         st.subheader("Correlation Matrix")
                         correlation_query = f"SELECT {', '.join(numeric_columns)} FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table} LIMIT 1000"
@@ -229,7 +274,7 @@ if st.session_state.connection_verified:
                             st.plotly_chart(fig)
                     
                     # Time series analysis
-                    date_columns = [col[0] for col in table_details if 'DATE' in col[1].upper() or 'TIMESTAMP' in col[1].upper()]
+                    date_columns = [col[0] for col in table_info['columns'] if 'DATE' in col[1].upper() or 'TIMESTAMP' in col[1].upper()]
                     if date_columns and numeric_columns:
                         st.subheader("Time Series Analysis")
                         selected_date_column = st.selectbox('Select a date column', date_columns)
@@ -247,12 +292,29 @@ if st.session_state.connection_verified:
                             df_time_series = pd.DataFrame(time_series_data, columns=['month', 'avg_metric'])
                             fig = px.line(df_time_series, x='month', y='avg_metric', title=f'Average {selected_metric} Over Time')
                             st.plotly_chart(fig)
+                    
+                    # Data quality checks
+                    st.subheader("Data Quality Checks")
+                    
+                    # Null value check
+                    null_checks = []
+                    for col in columns:
+                        null_query = f"""
+                        SELECT COUNT(*) as null_count
+                        FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table}
+                        WHERE {col} IS NULL
+                        """
+                        null_result = run_query(null_query)
+                        if null_result:
+                            null_checks.append((col, null_result[0][0]))
+                    
+                    df_null_checks = pd.DataFrame(null_checks, columns=['Column', 'Null Count'])
+                    df_null_checks['Null Percentage'] = (df_null_checks['Null Count'] / table_info['row_count']) * 100
+                    df_null_checks['Null Percentage'] = df_null_checks['Null Percentage'].round(2)
+                    st.dataframe(df_null_checks)
+                    
+                    # Visualize null percentages
+                    fig = px.bar(df_null_checks, x='Column', y='Null Percentage', title='Null Percentage by Column')
+                    st.plotly_chart(fig)
+                    
                 else:
-                    st.error(f"Failed to retrieve details for table {selected_table}")
-        else:
-            st.error(f"Failed to retrieve table list for {st.session_state.selected_schema} schema. Please check your connection and permissions.")
-
-else:
-    st.warning("⚠️ Please verify your Snowflake connection before proceeding.")
-
-st.sidebar.info("ℹ️ Note: This app uses hardcoded credentials, which is not recommended for production use.")
