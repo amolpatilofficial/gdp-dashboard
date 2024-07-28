@@ -109,12 +109,6 @@ def get_executive_summary(schema):
             if row_count:
                 total_rows += row_count[0][0]
         summary['total_rows'] = total_rows
-        
-        # Get total storage used
-        storage_usage = run_query(f"SELECT STORAGE_USAGE FROM {SNOWFLAKE_DATABASE}.INFORMATION_SCHEMA.TABLE_STORAGE_METRICS WHERE TABLE_SCHEMA = '{schema}'")
-        if storage_usage:
-            total_storage = sum(row[0] for row in storage_usage)
-            summary['storage_usage'] = f"{total_storage / (1024 * 1024 * 1024):.2f} GB"
     else:
         summary = None
     
@@ -140,10 +134,9 @@ if st.session_state.connection_verified:
         st.header(f'📈 Executive Summary - {st.session_state.selected_schema} Schema')
         summary = get_executive_summary(st.session_state.selected_schema)
         if summary:
-            col1, col2, col3 = st.columns(3)
-            col1.metric("📚 Total Tables", summary['total_tables'])
-            col2.metric("🔢 Total Rows", f"{summary['total_rows']:,}")
-            col3.metric("💾 Storage Usage", summary['storage_usage'])
+            col1, col2 = st.columns(2)
+            col1.metric("📚 Total Tables", summary.get('total_tables', 'N/A'))
+            col2.metric("🔢 Total Rows", f"{summary.get('total_rows', 'N/A'):,}")
             
             # Additional schema details
             st.subheader("📋 Schema Details")
@@ -185,20 +178,19 @@ if st.session_state.connection_verified:
                     
                     # Table statistics
                     st.subheader("📊 Table Statistics")
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2 = st.columns(2)
                     row_count = run_query(f"SELECT COUNT(*) FROM {SNOWFLAKE_DATABASE}.{st.session_state.selected_schema}.{selected_table}")
                     if row_count:
                         col1.metric("Total Rows", row_count[0][0])
                     
                     size_query = f"""
-                    SELECT TABLE_NAME, ROW_COUNT, BYTES
+                    SELECT TABLE_NAME, ROW_COUNT
                     FROM {SNOWFLAKE_DATABASE}.INFORMATION_SCHEMA.TABLES
                     WHERE TABLE_SCHEMA = '{st.session_state.selected_schema}' AND TABLE_NAME = '{selected_table}'
                     """
                     size_info = run_query(size_query)
                     if size_info:
-                        col2.metric("Size", f"{size_info[0][2] / (1024*1024):.2f} MB")
-                        col3.metric("Avg Row Size", f"{size_info[0][2] / size_info[0][1]:.2f} bytes")
+                        col2.metric("Row Count", size_info[0][1])
                     
                     # Sample data
                     st.subheader("👀 Sample Data")
